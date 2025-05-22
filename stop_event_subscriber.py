@@ -52,14 +52,12 @@ def callback(message: pubsub_v1.subscriber.message.Message) -> None:
         json_obj = json.loads(json.loads(message.data.decode("utf-8")))
 
         bus = json_obj[0]["vehicle_number"]
-        # bus = 1
         print(f"retrieved data for bus: {bus}")
 
         # Save bus data as JSON file
         with open(f'subscriber_stop_events/{date.year}/{date.month}/{date.day}/{bus}.json', 'a') as f: 
             json.dump(json_obj, f, indent=4)
-        # with open(f'subscriber_stop_events/{date.year}/{date.month}/{date.day}/{bus}.', 'w') as file: 
-        #     file.write(str(soup)) # Save data to html file
+
         print(f"Saved stop event for bus: {bus}")
         increment()
 
