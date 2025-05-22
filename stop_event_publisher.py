@@ -2,6 +2,8 @@ import os, json
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
+import pandas as pd
+import io
 import datetime
 import certifi
 import ssl
@@ -53,13 +55,50 @@ class Publisher():
                 # print(url)
                 html = urlopen(bus_url, context=ssl_context)
                 print("opened_file")
-                soup = BeautifulSoup(html,features='html.parser')
-                data_str = soup
-        
-                # Data must be a bytestring for Pub/Sub. str.encode() defaults to utf-8.
-                data = data_str.encode()
+                # soup = BeautifulSoup(html,features='html.parser')
+                # data_str = soup
 
-                print("topic path is: ", self.topic_path)
+                #convert to dataframe, ensuring that records with trip_id < 0 are omitted
+                soup = BeautifulSoup(html,features='html.parser')
+                type(soup)
+
+                id_strings = soup.find_all('h2')
+
+                trip_ids = []
+                for id in id_strings:
+                    temp = str(id)
+                    temp = temp.strip('<h2>')
+                    temp = temp.strip('Stop events for PDX_TRIP ')
+                    temp = temp.strip('</h2>')
+                    trip_ids.append(temp)
+
+                tables = soup.find_all('table')
+                table_dfs = []
+                id_index = 0
+
+                for table in tables:
+                    temp = str(table)
+                    df = pd.read_html(io.StringIO(temp))
+                    df[0]['trip_id'] = trip_ids[id_index]
+                    if int(trip_ids[id_index]) > 0:
+                        table_dfs.append(df)
+                    id_index += 1
+
+                whole_table = table_dfs[0][0]
+                for i in range(1,len(table_dfs)):
+                    whole_table = pd.concat([whole_table, table_dfs[i][0]], axis=0)
+                    
+
+                # Transform from full table to trip table columns only
+                datatable = whole_table[["trip_id", "route_number", "vehicle_number", "service_key", "direction"]]
+                
+                # Change from pandas to json before sending to pub/sub
+                json_table = datatable.to_json(orient='records')
+                data_str = json.dumps(json_table)
+
+                # Data must be a bytestring for Pub/Sub. str.encode() defaults to utf-8.
+                data = data_str.encode("utf-8")
+
                 # When you publish a message, the client returns a future.
                 future = self.publisher.publish(self.topic_path, data)
             
