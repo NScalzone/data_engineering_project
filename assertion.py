@@ -101,7 +101,7 @@ def assertions(breadcrumb: dict) -> bool:
         try:
             check(breadcrumb)
         except Exception as e:
-            # Optionally log the error: print(f"{check.__name__} failed: {e}")
+            print(f"{check.__name__} failed: {e}")
             return False
 
     return True
