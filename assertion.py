@@ -45,48 +45,67 @@ def date_transform(breadcrumb:dict) -> str:
     timestamp = get_timestamp(date, time)
     return timestamp
 
-def assertions(breadcrumb:dict) -> bool:
-    with open('vehicles.txt', 'r') as cars: vehicles = [bus.strip() for bus in cars.readlines()]
-
-    # Vehicle not in list
+def check_vehicle_id(breadcrumb: dict):
+    with open('vehicles.txt', 'r') as cars:
+        vehicles = [bus.strip() for bus in cars.readlines()]
     if str(breadcrumb['VEHICLE_ID']) not in vehicles:
-        return False
-    
-    # Valid value for Meters
-    if breadcrumb['METERS'] < 0:
-        return False
-    
-    # Longitude within range
-    if breadcrumb['GPS_LONGITUDE'] > -122.0 or breadcrumb['GPS_LONGITUDE'] < -124.0:
-        return False
-    
-    # Latitude within range
-    if breadcrumb['GPS_LATITUDE'] > 46 or breadcrumb['GPS_LATITUDE'] < 45:
-        return False
+        raise ValueError("Invalid vehicle ID")
 
-    # If GPS_HDOP is poor, ensure at least 2 satellites are present
-    if breadcrumb['GPS_HDOP'] > 20:
-        if breadcrumb['GPS_SATELLITES'] < 2:
-            return False
-    
-    # ensure the event has an ID number
+def check_meters(breadcrumb: dict):
+    if breadcrumb['METERS'] < 0:
+        raise ValueError("Meters value is negative")
+
+def check_longitude(breadcrumb: dict):
+    if breadcrumb['GPS_LONGITUDE'] > -122.0 or breadcrumb['GPS_LONGITUDE'] < -124.0:
+        raise ValueError("Longitude out of range")
+
+def check_latitude(breadcrumb: dict):
+    if breadcrumb['GPS_LATITUDE'] > 46 or breadcrumb['GPS_LATITUDE'] < 45:
+        raise ValueError("Latitude out of range")
+
+def check_hdop_and_satellites(breadcrumb: dict):
+    if breadcrumb['GPS_HDOP'] > 20 and breadcrumb['GPS_SATELLITES'] < 2:
+        raise ValueError("Poor HDOP with insufficient satellites")
+
+def check_event_no_trip(breadcrumb: dict):
     if not breadcrumb['EVENT_NO_TRIP']:
-        return False
-    
-    # ensure the event has a stop number
+        raise ValueError("Missing event trip number")
+
+def check_event_no_stop(breadcrumb: dict):
     if not breadcrumb['EVENT_NO_STOP']:
-        return False
-    
-    # ensure the date has the correct pattern, which is important for the transformation
-    date_pattern = re.compile("^[0-9]{2}[a-zA-Z]{3}[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2}$")
+        raise ValueError("Missing event stop number")
+
+def check_opd_date(breadcrumb: dict):
+    date_pattern = re.compile(r"^[0-9]{2}[a-zA-Z]{3}[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2}$")
     if not date_pattern.match(breadcrumb['OPD_DATE']):
-        return False
-    
-    # ensure time is positive number, and within the current or next day (no day after next)
-    if breadcrumb['ACT_TIME'] < 0 or breadcrumb['ACT_TIME'] > (172799):
-        return False
-    
+        raise ValueError("OPD_DATE format is invalid")
+
+def check_act_time(breadcrumb: dict):
+    if breadcrumb['ACT_TIME'] < 0 or breadcrumb['ACT_TIME'] > 172799:
+        raise ValueError("ACT_TIME is out of range")
+
+def assertions(breadcrumb: dict) -> bool:
+    checks = [
+        check_vehicle_id,
+        check_meters,
+        check_longitude,
+        check_latitude,
+        check_hdop_and_satellites,
+        check_event_no_trip,
+        check_event_no_stop,
+        check_opd_date,
+        check_act_time,
+    ]
+
+    for check in checks:
+        try:
+            check(breadcrumb)
+        except Exception as e:
+            # Optionally log the error: print(f"{check.__name__} failed: {e}")
+            return False
+
     return True
+
 
 def inter_record_assertion(breadcrumb_1:dict, breadcrumb_2:dict) -> bool:
     # Redundant datapoint, same time stamp
@@ -95,4 +114,3 @@ def inter_record_assertion(breadcrumb_1:dict, breadcrumb_2:dict) -> bool:
             return False
         
     return True
-
