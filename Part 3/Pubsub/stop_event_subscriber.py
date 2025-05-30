@@ -1,41 +1,36 @@
 from concurrent.futures import TimeoutError
 from google.oauth2 import service_account
 from google.cloud import pubsub_v1
-from bs4 import BeautifulSoup
-import pandas as pd
 import datetime
 import timeit
 import os
 import json
-
+import threading
+import libs.load as load
 
 subscription_id = "stop_events-sub"
 project_id = "data-eng-scalzone"
-SERVICE_ACCOUNT_FILE = "data_engineering_project/stop_event_key.json"
 CURRENT_DIR = os.path.dirname(__file__)
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 SERVICE_ACCOUNT_FILE = os.path.join(PARENT_DIR, "key_pubsub.json") # path to service account key file
 # Number of seconds the subscriber should listen for messages
 timeout = 60.0
-
 start = timeit.default_timer()
+date = datetime.date.today().isoformat()
 
-date = datetime.datetime.now()
-
-if not os.path.exists(f'subscriber_stop_events/{date.year}-{date.month}-{date.day}'): os.makedirs(f'subscriber_stop_events/{date.year}-{date.month}-{date.day}')
-if not os.path.exists(f'subscriber_stop_events/error/{date.year}-{date.month}'): os.makedirs(f'subscriber_stop_events/error/{date.year}-{date.month}')
+stop_events = []
+lock = threading.Lock()
 
 COUNT = 0
+UNDELIVERED = 0
+OUTPUT_FILE = os.path.join(CURRENT_DIR, f"subscriber_stop_events/stop_{date}.json")
+
 def increment():
-    global COUNT
+    global COUNT, UNDELIVERED
     COUNT += 1
+    UNDELIVERED += 1
     if COUNT % 10000 == 0: print(f"Received {COUNT} messages.")
     
-# Create a function to log which busses failed to retrieve data
-def log_print(error, bus):
-    """Prints the error to console and logs the bus to a file."""
-    print(error)
-    with open(f'subscriber_stop_events/error/{date.year}-{date.month}-{date.day}.txt', 'a') as f: f.write(bus + '\n')
 
 pubsub_creds =  (
     service_account.Credentials.from_service_account_file(
@@ -51,35 +46,64 @@ subscription_path = subscriber.subscription_path(project_id, subscription_id)
 def callback(message: pubsub_v1.subscriber.message.Message) -> None:
     print("arrived at callback")
     try:
-        json_obj = json.loads(message.data.decode("utf-8"))
+        global UNDELIVERED, stop_events
+        json_obj = json.loads(json.loads(message.data.decode("utf-8")))
 
-        bus = json_obj[0]["vehicle_number"]
+        if isinstance(json_obj, dict): 
+            with lock: 
+                stop_events.append(json_obj)
+            bus = json_obj["vehicle_number"]
+        elif isinstance(json_obj, list): 
+            with lock: 
+                stop_events.extend(json_obj)
+            bus = json_obj[0]["vehicle_number"]
+        else: print(f'The type of object received ({type(json_obj)}) is unknown')
+
         print(f"retrieved data for bus: {bus}")
+        if not os.path.exists(OUTPUT_FILE):
+            with open(OUTPUT_FILE, 'w') as f: json.dump([], f)
 
         # Save bus data as JSON file
-        with open(f'subscriber_stop_events/{date.year}-{date.month}-{date.day}/{bus}.json', 'a') as f: 
-            json.dump(json_obj, f, indent=4)
+        if COUNT % 1000 == 0:
+            with lock:
+                with open(OUTPUT_FILE, 'a') as f: 
+                    json.dump(stop_events, f, indent=2)
+                    load.store_pubsub_data(stop_events, 'trip')
+                    UNDELIVERED = 0
+                    stop_events = []
 
         print(f"Saved stop event for bus: {bus}")
         increment()
 
-    except Exception as e: log_print(e, "message error")
+    except Exception as e: print(e)
 
     message.ack()
     
     
 while True:
     streaming_pull_future = subscriber.subscribe(subscription_path, callback=callback)
-    print(f"Listening for messages on {subscription_path}..\n")
+    print(f"Listening for messages on {subscription_path}.. to output at {OUTPUT_FILE}\n")
 
     # Wrap subscriber in a 'with' block to automatically call close() when done.
 
     with subscriber:
+        OUTPUT_FILE = os.path.join(CURRENT_DIR, f"subscriber_stop_events/stop_{datetime.date.today().isoformat()}.json")
+        COUNT = 0
         try:
             # When `timeout` is not set, result() will block indefinitely,
             # unless an exception is encountered first.
             streaming_pull_future.result(timeout=timeout)
+            print(f"Processed {COUNT} messages.")
         except TimeoutError:
+            if UNDELIVERED > 0:
+                print(f"Processed {COUNT} messages with {UNDELIVERED} undelivered.")
+                with open(OUTPUT_FILE, "w") as f: 
+                    with lock: json.dump(stop_events, f, indent=2)
+                UNDELIVERED = 0
+            elif COUNT > 0: print(f"Processed {COUNT} messages.")
+            else: 
+                print("No messages processed.")
+                stop_events = []
             streaming_pull_future.result()  # Block until the shutdown is complete.
             streaming_pull_future.cancel()  # Trigger the shutdown.
             

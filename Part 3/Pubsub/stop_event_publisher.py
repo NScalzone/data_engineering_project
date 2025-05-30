@@ -1,10 +1,8 @@
-import os, json
-from urllib.error import HTTPError, URLError
+import json
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
 import pandas as pd
 import io
-import datetime
 import certifi
 import ssl
 from concurrent import futures 
@@ -14,7 +12,7 @@ from google.cloud import pubsub_v1
 url = 'https://busdata.cs.pdx.edu/api/getStopEvents?vehicle_num='
 
 # path to your service account key file you created and downloaded
-SERVICE_ACCOUNT_FILE = "stop_event_key.json"
+SERVICE_ACCOUNT_FILE = "/srv/DataEng/key_pubsub.json"
 PROJECT_ID = "data-eng-scalzone"
 TOPIC_ID = "stop_events"
 
@@ -119,4 +117,4 @@ class Publisher():
 
 
 my_publisher = Publisher(SERVICE_ACCOUNT_FILE, PROJECT_ID, TOPIC_ID)
-my_publisher.publish_data('vehicles.txt', url)
+my_publisher.publish_data('../vehicles.txt', url)
