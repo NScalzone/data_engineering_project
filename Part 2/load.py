@@ -12,7 +12,7 @@ from pathlib import Path
 import libs.assertion as assertion
 from libs.event_file_transform import create_table
 
-DBname, DBuser, DBpwd, DBtable, DataDir = os.getenv('DBNAME'), os.getenv('DBUSER'), os.getenv('DBPASS'), 'breadcrumb', 'crumbs'
+DBname, DBuser, DBpwd, DBtable, DataDir = 'postgres', 'postgres', os.getenv('DBPASS'), 'breadcrumb', 'crumbs'
 FILLROUTE = "-1"
 FILLSERVICE = 'Weekday'
 FILLDIRECTION = 'Out'
@@ -163,10 +163,17 @@ def query(querystring) -> list:
 # Step 6: Main Functions
 def store_pubsub_data(crumbs, table):
 	'''Store pubsub data into the database'''
-	conn = DBconnect()
+	for attempt in range(3):
+		try:
+			conn = DBconnect()
+			break
+				# Do insert or update
+		except psycopg2.OperationalError as e:
+			print(f"DB error on attempt {attempt + 1}: {e}")
+			time.sleep(3)
 	if table == 'breadcrumb':
 		crumbs = assertCrumbs(crumbs)
-		crumbdf, tripdf = process_crumbs(pd.DataFrame(crumbs))
+		crumbdf, tripdf = process_crumbs(pd.DataFrame(crumbs))        
 		loadDB(conn, process_stops(tripdf), table='trip')
 		loadDB(conn, crumbdf, table)
 	elif table == 'trip':
